@@ -1,0 +1,6 @@
+git init
+git add index.html
+git commit -m "Add finance tracker"
+git branch -M main
+git remote add origin https://github.com/vivekmurdhani6-collab/Expanses.git
+git push -u origin main
