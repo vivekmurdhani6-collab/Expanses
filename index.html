@@ -1,72 +1,294 @@
-/**
- * LEDGER — Apps Script backend (JSON body, one tab per month)
- * Paste this whole file into: your Google Sheet → Extensions → Apps Script
- * (delete whatever boilerplate code is already there first)
- *
- * Set your own SECRET_KEY below before deploying — it must match the PIN
- * you type into the web page.
- */
-
-const SECRET_KEY = "change-this-to-your-own-passcode";
-const TEMPLATE_SHEET_NAME = "Template"; // must match exactly — never rename/edit this tab
-
-function doPost(e) {
-  try {
-    const data = JSON.parse(e.postData.contents);
-
-    if (data.pin !== SECRET_KEY) {
-      return jsonResponse({ result: "error", error: "Incorrect PIN" });
-    }
-    if (!data.date || !data.type || !data.category || !data.amount) {
-      return jsonResponse({ result: "error", error: "Missing a required field" });
-    }
-
-    const entryDate = new Date(data.date);
-    const monthLabel = Utilities.formatDate(entryDate, Session.getScriptTimeZone(), "MMM-yyyy");
-
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(monthLabel);
-
-    if (!sheet) {
-      const template = ss.getSheetByName(TEMPLATE_SHEET_NAME);
-      if (!template) {
-        return jsonResponse({ result: "error", error: "Template tab not found — don't rename it" });
-      }
-      sheet = template.copyTo(ss);
-      sheet.setName(monthLabel);
-      ss.setActiveSheet(sheet);
-      ss.moveActiveSheet(template.getIndex() + 1);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Financial Tracker</title>
+  <style>
+    :root {
+      --bg-dark: #121212;
+      --card-bg: #1e1e20;
+      --input-bg: #28282b;
+      --border-color: #35353a;
+      --text-main: #ffffff;
+      --text-muted: #9e9ea7;
+      --placeholder: #686870;
+      
+      /* Colors */
+      --color-income: #22c55e;
+      --color-expense: #ef4444;
+      --color-asset: #3b82f6;
+      --color-liability: #d97706;
     }
 
-    const lastRow = sheet.getLastRow();
-    let targetRow = null;
-    const rowsToCheck = Math.max(lastRow - 1, 1);
-    const colA = sheet.getRange(2, 1, rowsToCheck, 1).getValues();
-    for (let i = 0; i < colA.length; i++) {
-      if (!colA[i][0]) { targetRow = 2 + i; break; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
-    if (!targetRow) targetRow = lastRow + 1; // ran out of pre-formatted rows — append a fresh one
 
-    sheet.getRange(targetRow, 1, 1, 5).setValues([[
-      entryDate,
-      data.type,
-      data.category,
-      data.description || "",
-      Number(data.amount)
-    ]]);
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
 
-    return jsonResponse({ result: "success", sheet: monthLabel, row: targetRow });
-  } catch (err) {
-    return jsonResponse({ result: "error", error: err.toString() });
-  }
-}
+    .container {
+      width: 100%;
+      max-width: 800px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
 
-function doGet(e) {
-  return jsonResponse({ status: "Ledger API is running" });
-}
+    /* Type Switcher Tabs */
+    .tabs-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
 
-function jsonResponse(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+    .tab-btn {
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn:hover {
+      border-color: #55555e;
+    }
+
+    /* Active Tab Styles */
+    .tab-btn[data-type="income"].active {
+      background-color: #0c2912;
+      border-color: #15803d;
+      color: var(--color-income);
+    }
+
+    .tab-btn[data-type="expense"].active {
+      background-color: #2b0f0f;
+      border-color: #b91c1c;
+      color: var(--color-expense);
+    }
+
+    .tab-btn[data-type="asset"].active {
+      background-color: #0c1e38;
+      border-color: #1d4ed8;
+      color: var(--color-asset);
+    }
+
+    .tab-btn[data-type="liability"].active {
+      background-color: #2b1d03;
+      border-color: #78350f;
+      color: var(--color-liability);
+    }
+
+    /* Form Area */
+    .form-group-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    input, select {
+      width: 100%;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input::placeholder {
+      color: var(--placeholder);
+    }
+
+    input:focus, select:focus {
+      border-color: #666670;
+    }
+
+    select {
+      appearance: none;
+      background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239E9EA7%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+      background-repeat: no-repeat;
+      background-position: right 16px top 50%;
+      background-size: 10px auto;
+      cursor: pointer;
+    }
+
+    /* Submit Button */
+    .submit-btn {
+      width: 100%;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .submit-btn:hover {
+      background-color: #323236;
+      border-color: #55555e;
+    }
+
+    /* Summary Cards */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .summary-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .summary-title {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .summary-amount {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .card-income .summary-amount { color: var(--color-income); }
+    .card-expense .summary-amount { color: var(--color-expense); }
+    .card-asset .summary-amount { color: var(--color-asset); }
+    .card-liability .summary-amount { color: var(--color-liability); }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Type Selector Tabs -->
+    <div class="tabs-grid">
+      <button class="tab-btn" data-type="income">Income</button>
+      <button class="tab-btn" data-type="expense">Expense</button>
+      <button class="tab-btn" data-type="asset">Asset</button>
+      <button class="tab-btn active" data-type="liability">Liability</button>
+    </div>
+
+    <!-- Main Entry Form -->
+    <form id="entryForm">
+      <div class="form-group-row">
+        <div class="form-group">
+          <label for="category">Category</label>
+          <select id="category">
+            <option value="Home Loan">Home Loan</option>
+            <option value="Car Loan">Car Loan</option>
+            <option value="Credit Card">Credit Card</option>
+            <option value="Salary">Salary</option>
+            <option value="Investments">Investments</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="amount">Amount</label>
+          <input type="number" id="amount" placeholder="0" min="0" required />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description</label>
+        <input type="text" id="description" placeholder="What was this for" />
+      </div>
+
+      <button type="submit" class="submit-btn">Add entry</button>
+    </form>
+
+    <!-- Summary Total Cards -->
+    <div class="summary-grid">
+      <div class="summary-card card-income">
+        <span class="summary-title">Income</span>
+        <span class="summary-amount" id="total-income">₹0</span>
+      </div>
+      <div class="summary-card card-expense">
+        <span class="summary-title">Expense</span>
+        <span class="summary-amount" id="total-expense">₹0</span>
+      </div>
+      <div class="summary-card card-asset">
+        <span class="summary-title">Asset</span>
+        <span class="summary-amount" id="total-asset">₹0</span>
+      </div>
+      <div class="summary-card card-liability">
+        <span class="summary-title">Liability</span>
+        <span class="summary-amount" id="total-liability">₹0</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // App State
+    let selectedType = 'liability';
+    const totals = {
+      income: 0,
+      expense: 0,
+      asset: 0,
+      liability: 0
+    };
+
+    // Tab switcher logic
+    const tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        selectedType = tab.dataset.type;
+      });
+    });
+
+    // Form Submit Handler
+    document.getElementById('entryForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const amount = parseFloat(document.getElementById('amount').value) || 0;
+      
+      totals[selectedType] += amount;
+      
+      // Update UI Display
+      document.getElementById(`total-${selectedType}`).textContent = `₹${totals[selectedType].toLocaleString('en-IN')}`;
+      
+      // Reset input fields
+      document.getElementById('amount').value = '';
+      document.getElementById('description').value = '';
+    });
+  </script>
+</body>
+</html>
